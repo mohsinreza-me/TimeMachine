@@ -1,14 +1,17 @@
 package com.timemachine.app
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.media.MediaPlayer
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -45,36 +48,73 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun dp(v: Int): Int = Ui.dp(this, v)
+
+    private fun btnParams(top: Int): LinearLayout.LayoutParams {
+        val p = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50))
+        p.topMargin = top
+        return p
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val density = resources.displayMetrics.density
-        val pad = (16 * density).toInt()
+        window.statusBarColor = Color.parseColor("#0B0F1E")
+        window.navigationBarColor = Color.parseColor("#2A1458")
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setPadding(pad, pad, pad, pad)
+        root.background = Ui.background()
+        root.setPadding(dp(16), dp(16), dp(16), dp(10))
+
+        val title = TextView(this)
+        title.text = "TIME MACHINE"
+        title.textSize = 22f
+        title.letterSpacing = 0.12f
+        title.typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+        title.setTextColor(Color.WHITE)
 
         status = TextView(this)
-        status.textSize = 16f
-        status.setTextColor(Color.WHITE)
-        status.setPadding(0, 0, 0, pad / 2)
+        status.textSize = 14f
+        status.setTextColor(Color.parseColor("#C9CCE0"))
+        status.setPadding(0, dp(6), 0, dp(4))
 
-        toggle = Button(this)
+        toggle = Ui.button(this, "Start recording", "#2FBF71")
         toggle.setOnClickListener { onToggle() }
 
-        val replay = Button(this)
-        replay.text = "Replay last 5 minutes"
+        val replay = Ui.button(this, "\u23EA  Replay last 5 min", "#6C4DFF")
+        replay.textSize = 14f
+        replay.setPadding(dp(4), 0, dp(4), 0)
         replay.setOnClickListener {
             flush()
             handler.postDelayed({
                 refresh()
                 val oldest = listClips().firstOrNull()
-                if (oldest != null) playFile(oldest)
-                else Toast.makeText(this, "No clips yet", Toast.LENGTH_SHORT).show()
+                if (oldest != null) {
+                    playFile(oldest)
+                } else {
+                    Toast.makeText(this, "No clips yet", Toast.LENGTH_SHORT).show()
+                }
             }, 1500)
         }
 
+        val clear = Ui.button(this, "\uD83D\uDDD1  Delete all clips", "#33E5484D")
+        clear.textSize = 14f
+        clear.setPadding(dp(4), 0, dp(4), 0)
+        clear.setOnClickListener { confirmDelete() }
+
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        val rp1 = LinearLayout.LayoutParams(0, dp(50), 1f)
+        val rp2 = LinearLayout.LayoutParams(0, dp(50), 1f)
+        rp2.leftMargin = dp(8)
+        row.addView(replay, rp1)
+        row.addView(clear, rp2)
+
+        val story = Ui.button(this, "\u2728  The story behind Time Machine", "#26FFFFFF")
+        story.setOnClickListener { startActivity(Intent(this, AboutActivity::class.java)) }
+
         video = VideoView(this)
+        video.setBackgroundColor(Color.BLACK)
         val mc = MediaController(this)
         mc.setAnchorView(video)
         video.setMediaController(mc)
@@ -92,17 +132,28 @@ class MainActivity : Activity() {
             if (f != null) playFile(f)
         }
 
+        val credit = TextView(this)
+        credit.text = "Made by Mohsin"
+        credit.textSize = 16f
+        credit.typeface = Typeface.create("cursive", Typeface.NORMAL)
+        credit.setTextColor(Color.parseColor("#FFD27A"))
+        credit.gravity = Gravity.CENTER
+
+        root.addView(title)
         root.addView(status)
-        root.addView(toggle)
-        root.addView(replay)
-        root.addView(
-            video,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        root.addView(toggle, btnParams(dp(4)))
+        val rowParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        root.addView(
-            list,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (200 * density).toInt())
-        )
+        rowParams.topMargin = dp(8)
+        root.addView(row, rowParams)
+        root.addView(story, btnParams(dp(8)))
+        val vp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        vp.topMargin = dp(12)
+        root.addView(video, vp)
+        root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(170)))
+        root.addView(credit)
         setContentView(root)
     }
 
@@ -155,6 +206,29 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun confirmDelete() {
+        AlertDialog.Builder(this)
+            .setTitle("Delete all clips?")
+            .setMessage("This removes every saved clip from your phone. If recording is on, it keeps going.")
+            .setPositiveButton("Delete") { _, _ -> deleteAll() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun deleteAll() {
+        video.stopPlayback()
+        playingName = null
+        var n = 0
+        val files = RecorderService.segmentDir(this).listFiles()
+        if (files != null) {
+            for (f in files) {
+                if (f.name.endsWith(".mp4") && f.delete()) n++
+            }
+        }
+        refresh()
+        Toast.makeText(this, "Deleted $n clip(s)", Toast.LENGTH_SHORT).show()
+    }
+
     private fun listClips(): List<File> {
         return RecorderService.segmentDir(this).listFiles()
             ?.filter { it.name.endsWith(".mp4") }
@@ -180,6 +254,7 @@ class MainActivity : Activity() {
     private fun refresh() {
         val on = RecorderService.running
         toggle.text = if (on) "Stop recording" else "Start recording"
+        toggle.background = Ui.pill(this, if (on) "#E5484D" else "#2FBF71")
         val clips = listClips()
         shown = clips.reversed()
 
